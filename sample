@@ -1,0 +1,204 @@
+import java.net.SocketTimeoutException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+
+import javax.mail.Message;
+import javax.mail.MessagingException;
+import javax.mail.Session;
+import javax.mail.Transport;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
+
+import org.apache.log4j.Logger;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.tinyradius.packet.AccessRequest;
+import org.tinyradius.packet.RadiusPacket;
+import org.tinyradius.util.RadiusClient;
+
+/**
+ * Simple Radius command-line client.
+ */
+public class TestClient {
+
+	private static final Logger LOG = Logger.getLogger("RadiusLog");
+
+	static Properties mailServerProp;
+	static Session mailSession;
+	static MimeMessage mailMessage;
+	private static final String pattern = "E MM/dd/yyyy HH:mm:ss.SSS";
+	static String passwordu = "Amex1234";
+
+	public static void main(String[] args) 	throws Exception {
+
+		RadiusClient rc = null;
+		String logMessage = "";
+		try {
+			Map<String, String> e3IpMap = new HashMap<String, String>();
+			e3IpMap.put("10.16.21.31", "HVNPWOKTWA01.gso.aexp.com");
+			e3IpMap.put("10.16.21.32", "HVNPWOKTWA02.gso.aexp.com");
+			e3IpMap.put("10.18.24.61", "HVGPWOKTWA01.phx.aexp.com");
+			e3IpMap.put("10.18.24.62", "HVGPWOKTWA02.phx.aexp.com");
+			//e3IpMap.put("148.172.134.138", "HVIPWOKTAPP01.ads.aexp.com");//comment
+			e3IpMap.put("148.172.134.189", "HVIPWOKTAPP02.ads.aexp.com");
+			e3IpMap.put("10.130.191.88", "HVSPWOKTAPP01.ads.aexp.com");
+			e3IpMap.put("10.130.191.89", "HVSPWOKTAPP02.ads.aexp.com");
+			e3IpMap.put("10.21.33.136", "HVUPWOKTAPP01.ads.aexp.com");
+			e3IpMap.put("10.21.33.137", "HVUPWOKTAPP02.ads.aexp.com");
+
+			Map<String, String> e3LocMap = new HashMap<String, String>();
+			e3LocMap.put("10.16.21.31", "Greensboro, US");
+			e3LocMap.put("10.16.21.32", "Greensboro, US");
+			e3LocMap.put("10.18.24.61", "Phoenix, US");
+			e3LocMap.put("10.18.24.62", "Phoenix, US");
+			//e3LocMap.put("148.172.134.138", "Gurgaon, India");//comment
+			e3LocMap.put("148.172.134.189", "Gurgaon, India");
+			e3LocMap.put("10.130.191.88", "Singapore");
+			e3LocMap.put("10.130.191.89", "Singapore");
+			e3LocMap.put("10.21.33.136", "Brighton, UK");
+			e3LocMap.put("10.21.33.137", "Brighton, UK");
+			
+//			e3IpMap.put("10.16.132.49","HQIQWOKTWA01.phx.aexp.com");//e2
+//			e3IpMap.put("10.16.132.50","HQIQWOKTWA02.phx.aexp.com");//e2
+//			
+//			e3LocMap.put("10.16.132.49", "Phoeonix, US");//e2			
+//			e3LocMap.put("10.16.132.50", "Phoeonix, US");//e2
+
+
+			System.out.println("==========Start===========");
+			
+			String user = "oktauser1";
+			String pass = "Test123$";
+			String shared = "e3$okta$Rad$C0nn3ct";
+			
+//			String user = "vunni1";//e2
+//			String pass = "Amex1234";//e2
+//			String shared = "E2RadiusKey";//e2
+			
+			//String shared = "dummyshared";
+			String host = "";
+			String location = "";
+			String timeStamp = DateTime.now().toString(pattern);
+
+			for (String ip: e3IpMap.keySet()){
+				try {
+					host = e3IpMap.get(ip);
+					location = e3LocMap.get(ip);
+					
+					System.out.println("E3 Server : "+host+" ("+ip+")");
+					rc = new RadiusClient(ip, shared);
+					
+					// 1. Send Access-Request
+					AccessRequest ar = new AccessRequest(user, pass);
+					ar.setAuthProtocol(AccessRequest.AUTH_PAP);
+
+					timeStamp = DateTime.now().toString(pattern);
+					RadiusPacket response = rc.authenticate(ar);
+					System.out.println("Response\n" + response + "\n");
+
+					String mailTxt = response.toString();
+					String resMsg = mailTxt.substring(mailTxt.toString().lastIndexOf("Reply-Message:") + 15);
+					if(!mailTxt.toLowerCase().contains("Access-Challenge".toLowerCase()) 
+							&& !mailTxt.toLowerCase().contains("Proxy".toLowerCase())){
+						logMessage = new StringBuilder()
+									.append(" Okta Server: ").append(host).append(" (").append(ip).append(") ")
+									.append("| Status: Failed")
+									.append("| Type: "+response.getPacketTypeName())
+									.append("| Message: "+resMsg).toString();
+						sendMail(new StringBuilder()
+								.append("Okta server: \n")
+								.append("Host: ").append(host+"\n")
+								.append("IP: ").append(ip+"\n")
+								.append("Location: ").append(location+"\n").append("\n\n")
+								.append("Timestamp (MST): ").append(timeStamp).append("\n\n")
+								.append("Error Message: \n")
+								.append(mailTxt).append("\n\n")
+								.append("Please Action:\n")
+								.append("Open a Sev 2 IMR and assign it to OKTAVFY_AXP_GL and call Anil Tottempudi")
+								.toString(),
+								new StringBuilder()
+								.append("Okta radius call on ")
+								.append(host).append(" (").append(ip).append(") ")
+								.append("failed").toString()
+								);
+					}
+				} catch(SocketTimeoutException e){
+					logMessage = new StringBuilder() 
+								.append(logMessage)
+								.append(" Okta Server: ").append(host).append(" (").append(ip).append(") ")
+								.append("| Status: Failed | SocketTimeoutException: ")
+								.append(e.getMessage())
+								.append(";").toString();
+					String mailTxt1 = new StringBuilder()
+									.append("Okta server: \n")
+									.append("Host: ").append(host+"\n")
+									.append("IP: ").append(ip+"\n")
+									.append("Location: ").append(location+"\n").append("\n\n")
+									.append("Timestamp (MST): ").append(timeStamp).append("\n\n")
+									.append("Error Message: \n ")
+									.append("SocketTimeoutException :")
+									.append(e.getMessage()).append("\n\n")
+									.append("Please Action:\n")
+									.append("Open a Sev 2 IMR and assign it to OKTAVFY_AXP_GL and call Anil Tottempudi")
+									.toString();
+					String sub = new StringBuilder()
+								.append("Okta radius call on ")
+								.append(host).append(" (").append(ip).append(") ")
+								.append("failed").toString();
+					//e.printStackTrace();
+					try {
+						sendMail(mailTxt1,sub);
+					} catch(MessagingException msgex){
+							logMessage = logMessage + "| Email Sent: No;";
+					}
+				} catch(MessagingException e){
+					logMessage = logMessage + "| Email Sent: No;";
+				} catch(Exception e){
+					logMessage = logMessage + "| Exception: "+e.getMessage()+";";
+				}
+			}
+			if(!"".equals(logMessage)){
+				LOG.info(logMessage);
+			}
+			System.out.println("==========End===========");
+		} catch(Exception e){
+			e.printStackTrace();
+		} finally {
+			rc.close();
+		}
+	}
+
+	public static void sendMail(String mailTxt, String subject) throws Exception {
+		try {
+
+			mailServerProp = System.getProperties();
+			mailServerProp.setProperty("mail.smtp.host", "E3-SMTP-GTM.aexp.com");
+			//mailServerProp.setProperty("mail.smtp.host", "USAZPHX-MRLYe2-VIP.app.aexp.com");//e2
+			//mailServerProp.setProperty("mail.smtp.host", "LPQIU523.TRCW.US.AEXP.COM");//e1
+			mailServerProp.setProperty("mail.smtp.port", "25");
+
+			mailSession = Session.getDefaultInstance(mailServerProp);
+
+			mailMessage = new MimeMessage(mailSession);
+			mailMessage.setFrom(new InternetAddress("OktaRadiusMonitoringAlert@aexp.com"));
+
+			mailMessage.addRecipient(Message.RecipientType.TO, new InternetAddress("OktaSupport@aexp.com"));
+			mailMessage.addRecipient(Message.RecipientType.TO, new InternetAddress("DirectoryServices-OperationalSupport@aexp.com"));
+			mailMessage.addRecipient(Message.RecipientType.TO, new InternetAddress("patrick.m.jenifer@aexp.com"));
+
+			//mailMessage.addRecipient(Message.RecipientType.TO, new InternetAddress("Anil.Tottempudi1@aexp.com"));
+			//mailMessage.addRecipient(Message.RecipientType.TO, new InternetAddress("vipin.v.unni@aexp.com"));
+
+			mailMessage.setSubject(subject);
+			mailMessage.setText(mailTxt);
+	    	Transport.send(mailMessage);
+
+		} catch(Exception exception) {
+			throw exception;
+		}
+	}	
+	
+}
